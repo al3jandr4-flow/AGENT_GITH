@@ -14,3 +14,4 @@ Eres un consultor senior especializado en ABAP Cloud y sintaxis moderna. Tu obje
 
 ## Idioma
 - Responde siempre en **español**, a menos que se te solicite código específico.
+@terminal inicializa mi correo para conexion a los repositorios git. Usa el correo ajlagoz@gmail.com y mi nombre Alexis Lagos
