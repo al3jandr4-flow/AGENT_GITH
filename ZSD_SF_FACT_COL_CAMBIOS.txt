@@ -1,0 +1,898 @@
+* Formulario
+CONSTANTS:
+*.. ricef
+lc_wricef  TYPE char15 VALUE 'SD_040',
+lc_wricef2 TYPE char15 VALUE 'FACTURACION',
+lc_wricef3 TYPE char15 VALUE 'ZSD_SF_044'.
+
+DATA: lwa_detalle TYPE gty_detalle.
+DATA: lwa_hd_kond TYPE lbbil_hd_kond.
+DATA: lv_tdlnr    TYPE tdlnr.
+DATA: lv_text1    TYPE text1.
+DATA: lv_text2    TYPE text1.
+DATA: lv_name1    TYPE name1.
+DATA: lv_name2    TYPE name2.
+DATA: lv_stcd1    TYPE stcd1.
+DATA: lv_campo1   TYPE char20.
+DATA: lv_campo2   TYPE char20.
+DATA: lt_ref  TYPE STANDARD TABLE OF lbbil_it_ref,
+      lwa_ref TYPE lbbil_it_ref.
+DATA: lwa_knb1 TYPE knb1.
+DATA: lr_garndes  TYPE RANGE OF matnr,
+      lr_medianas TYPE RANGE OF matnr,
+      lr_pequenas TYPE RANGE OF matnr.
+DATA: lv_ean TYPE char20.
+*DATA: lv_xblnr TYPE xblnr_v1.
+DATA: lwa_vbrk TYPE vbrk.
+DATA: lwa_mseg TYPE mseg.
+DATA: lv_kunnr TYPE kunnr.
+DATA: lv_lines  TYPE I.
+DATA: lt_mkpf TYPE STANDARD TABLE OF mkpf.
+DATA: lt_mseg TYPE STANDARD TABLE OF mseg.
+DATA: lwa_parameter TYPE ztbc_parameters.
+DATA: lti_elements  TYPE STANDARD TABLE OF gty_elements.
+DATA: lwa_elements  TYPE gty_elements.
+DATA: lv_total TYPE kwert.
+DATA:
+      lv_currency TYPE tcurc-waers VALUE 'COP',
+      lv_aux      TYPE bapicurr-bapicurr,
+      lv_num(13)  TYPE p DECIMALS 2.
+"-> BEGINOF: MPACHECO: 08.12.2018 15:24:11
+*: COnsultar clase de pedido
+DATA : lv_pedidoau TYPE vbak-auart.
+  "<- ENDOF: MPACHECO: 08.12.2018 15:24:21
+
+*..rangos
+  DATA: lr_gra    TYPE RANGE OF matnr,
+        lr_peq    TYPE RANGE OF matnr,
+        lr_med    TYPE RANGE OF matnr,
+        lr_est    TYPE RANGE OF matnr,
+        lr_precio TYPE RANGE OF kscha.
+
+  FIELD-SYMBOLS <ls_mkpf> LIKE LINE OF lt_mkpf.
+  FIELD-SYMBOLS <lf_detalle> LIKE LINE OF gti_detalle.
+  "Variable para impresion formato Anticipo en blanco-ndiaz 290819
+  DATA: lv_factanct(1) TYPE C.
+*Fin.
+*.. obtener parámetro cubeta grande.
+  zcl_bc_parameters=>get_range(
+  EXPORTING
+    im_v_wricef    = lc_wricef3
+    im_v_id        = 'GRANDES'
+    im_v_sign      = 'I'
+    im_v_option    = 'EQ'
+    im_v_separador = ','
+    im_v_bukrs     = space
+  CHANGING
+    ch_r_rango     = lr_gra ).
+
+*.. obtener parámetro cubeta mediana.
+  zcl_bc_parameters=>get_range(
+  EXPORTING
+    im_v_wricef    = lc_wricef3
+    im_v_id        = 'MEDIANAS'
+    im_v_sign      = 'I'
+    im_v_option    = 'EQ'
+    im_v_separador = ','
+    im_v_bukrs     = space
+  CHANGING
+    ch_r_rango     = lr_med ).
+
+*.. obtener parámetro cubeta pequeña.
+  zcl_bc_parameters=>get_range(
+  EXPORTING
+    im_v_wricef    = lc_wricef3
+    im_v_id        = 'PEQUINAS'
+    im_v_sign      = 'I'
+    im_v_option    = 'EQ'
+    im_v_separador = ','
+    im_v_bukrs     = space
+  CHANGING
+    ch_r_rango     = lr_peq ).
+*.. obtener parámetro estibas.
+  zcl_bc_parameters=>get_range(
+  EXPORTING
+    im_v_wricef    = lc_wricef3
+    im_v_id        = 'PALET'
+    im_v_sign      = 'I'
+    im_v_option    = 'EQ'
+    im_v_separador = ','
+    im_v_bukrs     = space
+  CHANGING
+    ch_r_rango     = lr_est ).
+
+*.. resolucion de facturación
+  CLEAR lwa_parameter.
+  zcl_bc_parameters=>get_parameter(
+  EXPORTING
+    im_v_wricef = lc_wricef
+    im_v_id     = 'RESOLU_FACTURACION'
+  IMPORTING
+    ex_wa_param = lwa_parameter ).
+
+  CLEAR gv_resolu_fac.
+  gv_resolu_fac = lwa_parameter-valor.
+
+  zcl_bc_parameters=>get_range(
+  EXPORTING
+    im_v_wricef = lc_wricef2
+    im_v_id     = 'CL_POS_NO_AGRUPA'
+    im_v_bukrs  = is_bil_invoice-hd_org-comp_code
+  CHANGING
+    ch_r_rango  = gr_cl_pos_no_agrupa ).
+
+
+*..resolucion primera linea
+  CLEAR: lwa_parameter, gv_parameter_1.
+
+  DATA(lv_id_resol) = VALUE zdeparam_id( ).
+  SELECT SINGLE blart INTO @DATA(lv_blart)
+        FROM vbrk AS vk
+        WHERE vk~vbeln = @is_bil_invoice-hd_gen-bil_number .
+
+  IF lv_blart = 'D0' .
+    lv_id_resol = 'RESOLUCION_D0' . " Resol, D0
+  ELSE.
+    lv_id_resol = 'RESOLUCION_1' .
+  ENDIF .
+
+  zcl_bc_parameters=>get_parameter(
+  EXPORTING
+    im_v_wricef = lc_wricef2
+    im_v_id     = lv_id_resol
+    im_v_bukrs  = is_bil_invoice-hd_org-comp_code
+  IMPORTING
+    ex_wa_param = lwa_parameter ).
+
+  gv_parameter_1 = lwa_parameter-valor.
+
+*codigo EAN
+  CLEAR lwa_parameter.
+  zcl_bc_parameters=>get_parameter(
+  EXPORTING
+    im_v_wricef = lc_wricef2
+    im_v_id     = 'EANALPINA'
+    im_v_bukrs  = is_bil_invoice-hd_org-comp_code
+  IMPORTING
+    ex_wa_param = lwa_parameter ).
+  IF lwa_parameter IS NOT INITIAL.
+    CLEAR lv_ean.
+    lv_ean = lwa_parameter-valor.
+  ENDIF.
+
+  "->BEGIN OF JTC: HSANABRIA: 23.07.2020 12:13:26 : nombre prov
+  CLEAR lwa_parameter.
+  zcl_bc_parameters=>get_parameter(
+  EXPORTING
+    im_v_wricef = lc_wricef2
+    im_v_id     = 'PROVEEDOR_TEC'
+*   im_v_bukrs  = is_bil_invoice-hd_org-comp_code
+  IMPORTING
+    ex_wa_param = lwa_parameter ).
+
+  gv_proveedor = lwa_parameter-valor.
+
+  "->END OF JTC: HSANABRIA: 23.07.2020 12:13:44 nombre prov tecnologico
+
+
+
+*.. obtener parámetro rango precios.
+  zcl_bc_parameters=>get_range(
+  EXPORTING
+    im_v_wricef    = lc_wricef3
+    im_v_id        = 'PRECIO'
+    im_v_sign      = 'I'
+    im_v_option    = 'EQ'
+    im_v_separador = ','
+    im_v_bukrs     = space
+  CHANGING
+    ch_r_rango     = lr_precio ).
+  "-> BEGINOF: MPACHECO: 08.12.2018 15:26:45
+  ": CONSULTA A VBAK traer clase de documento
+  READ TABLE is_bil_invoice-it_reford ASSIGNING FIELD-SYMBOL(<lfs_refor>)
+  WITH KEY bil_number = is_bil_invoice-hd_gen-bil_number.
+  IF sy-subrc = 0.
+    SELECT SINGLE auart
+    FROM vbak
+    INTO lv_pedidoau
+    WHERE vbeln = <lfs_refor>-order_numb.
+  ENDIF.
+  "<- ENDOF: MPACHECO: 08.12.2018 15:26:58
+
+*..extraemos datos para IVA
+  FREE gti_elements.
+*//ADD DSHK962828
+  IF is_bil_invoice-it_gen[] IS NOT INITIAL.
+    SELECT * FROM prcd_elements
+    INTO CORRESPONDING FIELDS OF TABLE gti_elements
+    FOR ALL ENTRIES IN is_bil_invoice-it_gen
+    WHERE knumv = is_bil_invoice-hd_gen-kond_numb
+    AND   kposn = is_bil_invoice-it_gen-itm_number
+    AND   kschl IN lr_precio.
+  ENDIF.
+*//ADD DSHK962828
+* Función que completa con ceros a la izquierda de una variable
+*@0001 - 20190530 - inicio - Ajuste Autoventas
+  SELECT SINGLE xblnr,gjahr
+  FROM vbrk
+  WHERE vbeln = @is_bil_invoice-hd_gen-bil_number
+  INTO ( @DATA(lv_xblnr), @DATA(lv_gjahr) ).
+*@0001 - 20190530 - Fin - Ajuste Autoventas
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+  EXPORTING
+    INPUT  = lv_xblnr
+  IMPORTING
+    OUTPUT = lv_xblnr.
+
+*..datos cabecera
+  CLEAR gw_data.
+  PERFORM datos_cabecera USING is_bil_invoice-hd_org-comp_code
+  CHANGING gw_data.
+*..factura ancheta pendiente
+  FREE gti_anchetas.
+*- & Corrección temporal desbordamiento de impresión - 27092019
+*-& Se apunta a Hana y en la visualización se restringe a 15
+  SELECT zuonr, xref2,budat,dmbtr
+  FROM bsid
+  INTO CORRESPONDING FIELDS OF TABLE @gti_anchetas
+  WHERE bukrs = @is_bil_invoice-hd_org-comp_code
+  AND   kunnr = @is_bil_invoice-hd_gen-sold_to_party
+  AND   umskz = 'T'
+  ORDER BY budat DESCENDING.
+  IF sy-subrc EQ 0.
+
+    CLEAR gv_acum_anticipo.
+
+    gv_acum_anticipo = REDUCE dmbtr( INIT SUM = 0 FOR lwa IN gti_anchetas
+    NEXT
+    SUM = SUM + lwa-dmbtr ).
+
+  ENDIF.
+*- & Corrección temporal desbordamiento de impresión - 27092019
+
+*..Se consulta si el cliente tiene asignado Ancheta
+  SELECT vbeln
+  FROM  vbak
+  WHERE auart = 'ZCPA'
+  AND kunnr = @is_bil_invoice-hd_gen-sold_to_party
+  INTO  TABLE @DATA(lt_factanct).
+
+  IF sy-subrc EQ 0.
+    SELECT a~vbeln
+    FROM  vbrp AS a INNER JOIN @lt_factanct AS b
+    ON a~aubel = b~vbeln
+    GROUP BY a~vbeln
+    ORDER BY a~vbeln
+    INTO TABLE @DATA(lt_factancht).
+    IF sy-subrc NE 0.
+      lv_factanct = 'X'.
+    ENDIF.
+  ENDIF.
+
+  " Formato de Anchetas
+  IF gti_anchetas[] IS NOT INITIAL OR lv_factanct = 'X'.
+    CLEAR gv_flag.
+    gv_flag = 'X'.
+    IF lv_factanct = 'X'.
+      APPEND gwa_anchetas TO gti_anchetas.
+    ENDIF.
+
+* Codigo Barras Anchetas
+    DATA(ls_ancheta_ax) = gti_anchetas[ 1 ].
+
+    CLEAR: gv_barras, gv_barras_text.
+    CONCATENATE '(415)' lv_ean '(8020)' ls_ancheta_ax-zuonr
+    INTO gv_barras_ancheta_text.
+    CONCATENATE '>;>8415' lv_ean '8020' ls_ancheta_ax-zuonr
+    INTO gv_barras_ancheta.
+
+    CONDENSE: gv_barras_ancheta_text, gv_barras_ancheta NO-GAPS.
+    "<- ENDOF: MPACHECO: 13.11.2018 07:27:21
+  ENDIF.
+*..barrido de tabla de posiciones standar
+  "@0003 - IBM - Inicio - Ajuste ordenamiento
+*--& Se trae la información de las ubicaciones
+  SELECT DISTINCT v~matnr,v~posnr,M~lgpbe
+  INTO TABLE @DATA(lt_mard)
+        FROM vbrp AS v
+        INNER JOIN mard AS M
+        ON v~matnr = M~matnr
+        AND v~werks = M~werks
+        AND v~lgort = M~lgort
+        FOR ALL ENTRIES IN @is_bil_invoice-it_gen
+        WHERE v~vbeln  = @is_bil_invoice-it_gen-bil_number
+        AND v~matnr = @is_bil_invoice-it_gen-material
+        AND v~posnr = @is_bil_invoice-it_gen-itm_number.
+
+  SELECT vbeln, posnr, mwsbp
+  FROM vbrp
+  INTO TABLE @DATA(lt_vbrp)
+        FOR ALL ENTRIES IN @is_bil_invoice-it_gen
+        WHERE vbeln = @is_bil_invoice-hd_gen-bil_number
+        AND posnr = @is_bil_invoice-it_gen-itm_number.
+  DATA:lv_montoiva_str(15) TYPE C.
+*BREAK co105742542.
+*INI - Modif. - ALP2305-01 Impuesto Saludable - FLX_ABAP - 28.10.2023
+  DATA:
+        lv_ibua TYPE vfprc_element_value,
+        lv_icui TYPE vfprc_element_value,
+        lv_iva TYPE vfprc_element_value.
+*FIN - Modif. - ALP2305-01 Impuesto Saludable - FLX_ABAP - 28.10.2023
+  LOOP AT is_bil_invoice-it_gen INTO gwa_it_gen.
+*..valor de % de IVA
+    CLEAR lwa_elements.
+
+
+    IF line_exists( lt_mard[ matnr = gwa_it_gen-material
+    posnr = gwa_it_gen-itm_number ] ).
+
+      DATA(ls_mard) = lt_mard[ matnr = gwa_it_gen-material
+            posnr = gwa_it_gen-itm_number ] .
+      DATA(lv_lgpbe) = ls_mard-lgpbe.
+
+    ENDIF.
+    "@0003 - IBM - FIN - Ajuste ordenamiento
+
+    IF is_bil_invoice-hd_gen-bil_type <> 'ZCRS'.
+
+      PERFORM get_data_1 TABLES gti_elements
+      USING is_bil_invoice
+            gwa_it_gen
+            gr_cl_pos_no_agrupa
+            lv_lgpbe "@0003-IBM - Ajuste ordenamiento
+      CHANGING gti_detalle
+*        INI - Modif. - ALP2305-01 Impuesto Saludable - FLX_ABAP - 23.10.2023
+        lv_ibua
+        lv_icui
+        gv_porc_icui
+*        FIN - Modif. - ALP2305-01 Impuesto Saludable - FLX_ABAP - 23.10.2023
+*        INI - Modif. - ALP2305-01 Impuesto Saludable - FLX_ABAP - 03.11.2023
+        lv_iva.
+*        FIN - Modif. - ALP2305-01 Impuesto Saludable - FLX_ABAP - 03.11.2023
+
+      CLEAR lv_lgpbe."@0003 - IBM - Ajuste ordenamiento
+      " ZCRS = CO Servicios Ruedas
+  ELSEIF is_bil_invoice-hd_gen-bil_type = 'ZCRS'.
+      CLEAR lwa_elements.
+      READ TABLE gti_elements INTO lwa_elements
+      WITH KEY kposn = gwa_it_gen-itm_number
+      kschl = 'ZCPR'.
+      IF sy-subrc = 0.
+        PERFORM get_data_2 TABLES gti_elements
+        USING is_bil_invoice gwa_it_gen
+        CHANGING gti_detalle
+*        INI - Modif. - Incidente INC000000005284  - FLX_ABAP - 28.12.2023
+          lv_iva.
+*        FIN - Modif. - Incidente INC000000005284  - FLX_ABAP - 28.12.2023
+      ELSE.
+        CLEAR: lwa_detalle.
+      ENDIF.
+    ENDIF.
+
+    "->BEGIN OF JTC: HSANABRIA: 27.07.2020 16:11:06 : Monto iva
+
+*  READ TABLE gti_detalle ASSIGNING
+*                         FIELD-SYMBOL(<lfs_detalle1>) INDEX sy-tabix.
+*  IF sy-subrc = 0.
+*    READ TABLE lt_vbrp INTO DATA(ls_vbrp)
+*                     WITH KEY vbeln = gwa_it_gen-bil_number
+*                              posnr = gwa_it_gen-itm_number.
+*    lv_montoiva_str = 100 * ls_vbrp-mwsbp.
+*    CONDENSE lv_montoiva_str NO-GAPS.
+*    <lfs_detalle1>-monto_iva =  lv_montoiva_str.
+*  ENDIF.
+
+
+*  CONDENSE <lfs_detalle1>-monto_iva NO-GAPS.
+    "->END OF JTC: HSANABRIA: 27.07.2020 16:11:13 Monto iva
+
+  ENDLOOP.
+*INI - Modif. - ALP2305-01 Impuesto Saludable - FLX_ABAP - 28.10.2023
+  gv_ibua = TRUNC( lv_ibua ).
+  gv_icui = TRUNC( lv_icui ).
+  gv_monto_iva  = lv_iva * 100.
+
+  CLEAR: lv_ibua, lv_icui.
+*FIN - Modif. - ALP2305-01 Impuesto Saludable - FLX_ABAP - 28.10.2023
+
+  " Determina si un producto es para cambio
+  LOOP AT gti_detalle ASSIGNING FIELD-SYMBOL(<lfs_detalle_fnal>).
+    IF <lfs_detalle_fnal>-itm_categ EQ 'ZCPC'.
+      <lfs_detalle_fnal>-cambio = 'C'.
+    ENDIF.
+  ENDLOOP.
+
+  SORT gti_detalle BY itm_number material.
+
+*  Al finalizar LLeno columna lfimg_c, que lleva texto de la cantidad
+  "-> BEGINOF: MPACHECO: 16.01.2019 21:52:15
+  "MP: Quitar Decimales de Unidad de Und De Rango
+  DATA: lr_vrkme  TYPE RANGE OF vrkme .
+*   Método para obtener el rango.
+  zcl_bc_parameters=>get_range(
+  EXPORTING
+    im_v_wricef = 'F-SD-040'
+    im_v_id     = 'UND_MEDIDA'
+  CHANGING
+    ch_r_rango  = lr_vrkme
+    ).
+  "<- ENDOF: MPACHECO: 16.01.2019 21:52:34
+
+  DATA lv_fkimg TYPE p LENGTH 15.
+
+
+  LOOP AT gti_detalle ASSIGNING FIELD-SYMBOL(<ls_detalle>).
+    IF <ls_detalle>-sales_unit IN lr_vrkme
+    AND lr_vrkme IS NOT INITIAL.
+
+      lv_fkimg = <ls_detalle>-fkimg.
+      WRITE lv_fkimg TO <ls_detalle>-fkimg_c
+      UNIT <ls_detalle>-sales_unit.
+    ELSE.
+      WRITE <ls_detalle>-fkimg TO <ls_detalle>-fkimg_c
+      UNIT <ls_detalle>-sales_unit .
+    ENDIF.
+    CONDENSE <ls_detalle>-fkimg_c.
+    CLEAR lv_fkimg.
+
+  ENDLOOP.
+
+  IF is_bil_invoice-hd_gen-bil_type <> 'ZCRS'.
+*..monto precio unitario
+    LOOP AT gti_detalle ASSIGNING <lf_detalle>.
+      <lf_detalle>-unit_price = <lf_detalle>-kwert /
+      <lf_detalle>-fkimg.
+    ENDLOOP.
+
+    gv_valor_total = ( is_bil_invoice-hd_gen-bil_netwr +
+    is_bil_invoice-hd_gen-bil_tax ).
+
+ELSEIF is_bil_invoice-hd_gen-bil_type = 'ZCRS'.
+    CLEAR gv_valor_total.
+    LOOP AT gti_detalle ASSIGNING <lf_detalle>.
+      ADD <lf_detalle>-kwert TO lv_total.
+    ENDLOOP.
+
+    CLEAR: gv_valor_total.
+    gv_valor_total = lv_total + is_bil_invoice-hd_gen-bil_tax.
+  ENDIF.
+
+*SORT gti_detalle BY material .
+*DESCRIBE TABLE gti_detalle LINES gv_items.
+
+*..recaudo
+  READ TABLE is_bil_invoice-it_ref INTO lwa_ref
+  WITH KEY bil_number   = is_bil_invoice-hd_org-bil_number
+  ref_doc_type = 'J'.
+  IF sy-subrc = 0.
+    CLEAR:lv_text1, lv_tdlnr.
+    SELECT SINGLE a~tprfo b~tdlnr b~text1 b~text2
+    FROM vttp AS a
+    INNER JOIN vttk AS b ON b~tknum = a~tknum
+    INTO (gwa_adicional-tprfo, lv_tdlnr, lv_text1,
+    gwa_adicional-text2)
+    WHERE a~vbeln = lwa_ref-ref_doc.
+
+    IF sy-subrc = 0.
+      IF lv_tdlnr IS NOT INITIAL.
+        CLEAR: lv_name1, lv_name2.
+        SELECT SINGLE name1 name2 stcd1
+        INTO (lv_name1, lv_name2, lv_stcd1)
+        FROM lfa1
+        WHERE lifnr = lv_tdlnr.
+        IF sy-subrc = 0.
+          CLEAR: gwa_adicional-name, gwa_adicional-stcd1.
+*..Razón Social Transportista
+          CONCATENATE lv_name1 lv_name2 INTO
+          gwa_adicional-name SEPARATED BY space.
+*..Tipo de identificación RUN transportista
+          gwa_adicional-stcd1 = lv_stcd1.
+        ENDIF.
+      ELSE.
+        CLEAR: gwa_adicional-name, lv_campo1, lv_campo2.
+        SPLIT lv_text1 AT '/' INTO lv_campo1 lv_campo2.
+*..Razón Social Transportista
+        gwa_adicional-name = lv_campo2.
+*..Tipo de identificación RUN transportista
+        gwa_adicional-name = lv_campo1.
+      ENDIF.
+
+      CLEAR: gwa_adicional-conduc, gwa_adicional-c_c .
+
+      SPLIT lv_text1 AT '/' INTO gwa_adicional-c_c
+      gwa_adicional-conduc.
+    ENDIF.
+
+*..valor KUNNR cliente para cubetas
+    CLEAR lv_kunnr.
+    SELECT SINGLE kunnr INTO lv_kunnr
+    FROM likp
+    WHERE vbeln = lwa_ref-ref_doc.
+
+*..Orden de entrega
+    CLEAR gv_tprfo.
+    SELECT SINGLE tprfo INTO gv_tprfo
+    FROM vttp
+    WHERE vbeln = lwa_ref-ref_doc.
+  ENDIF.
+
+*..valores para las cubetas
+  SELECT * INTO TABLE lt_mkpf
+  FROM mkpf
+  WHERE mjahr = is_bil_invoice-hd_gen-bil_date(4) AND bldat = is_bil_invoice-hd_gen-bil_date.
+
+*  IF lt_mkpf[] IS NOT INITIAL.
+*..Cubetas Grandes
+*    SELECT * INTO TABLE lt_mseg
+*    FROM nsdm_v_mseg "mseg DSHK962828
+*    FOR ALL ENTRIES IN lt_mkpf
+*    WHERE mblnr = lt_mkpf-mblnr
+*    AND mjahr   = lt_mkpf-mjahr "DSHK962828
+*    AND   bwart = '63A' "561
+**    AND   sobkz = 'V'
+*    AND   matnr IN lr_gra
+*    AND   kunnr = lv_kunnr.
+
+SELECT  *
+  FROM mkpf AS a
+  INNER JOIN matdoc AS b
+    ON a~mblnr = b~mblnr
+   AND a~mjahr = b~mjahr
+  INTO CORRESPONDING FIELDS OF TABLE @lt_mseg
+ WHERE b~bwart = '63A'
+   AND b~matnr IN @lr_gra
+   AND b~kunnr = @lv_kunnr.
+
+    IF lt_mseg[] IS NOT INITIAL.
+      CLEAR lv_lines.
+      DESCRIBE TABLE lt_mseg LINES lv_lines.
+      IF lv_lines GT 1.
+        CLEAR lwa_mseg.
+        READ TABLE lt_mseg INTO lwa_mseg
+        INDEX 1.
+        IF sy-subrc = 0.
+          gv_cub_grad = lwa_mseg-menge .
+        ENDIF.
+      ELSE.
+        SORT lt_mkpf DESCENDING BY cputm.
+        READ TABLE lt_mkpf ASSIGNING <ls_mkpf>
+        INDEX 1.
+        IF sy-subrc = 0.
+          CLEAR lwa_mseg.
+          SELECT SINGLE *
+          FROM nsdm_v_mseg "mseg DSHK962828
+          INTO lwa_mseg
+          WHERE mblnr = <ls_mkpf>-mblnr
+          AND mjahr   = <ls_mkpf>-mjahr. "DSHK962828
+          IF sy-subrc = 0.
+            gv_cub_grad = lwa_mseg-menge.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+*..Cubetas medianas
+*    SELECT * INTO TABLE lt_mseg
+*    FROM nsdm_v_mseg "mseg DSHK962828
+*    FOR ALL ENTRIES IN lt_mkpf
+*    WHERE mblnr = lt_mkpf-mblnr
+*    AND mjahr   = lt_mkpf-mjahr "DSHK962828
+*    AND   bwart = '63A' "561
+**    AND   sobkz = 'V'
+*    AND   matnr IN lr_med
+*    AND   kunnr = lv_kunnr.
+
+SELECT  *
+  FROM mkpf AS a
+  INNER JOIN matdoc AS b
+    ON a~mblnr = b~mblnr
+   AND a~mjahr = b~mjahr
+  INTO CORRESPONDING FIELDS OF TABLE @lt_mseg
+ WHERE b~bwart = '63A'
+   AND b~matnr IN @lr_med
+   AND b~kunnr = @lv_kunnr.
+
+    IF lt_mseg[] IS NOT INITIAL.
+      CLEAR lv_lines.
+      DESCRIBE TABLE lt_mseg LINES lv_lines.
+      IF lv_lines GT 1.
+        CLEAR lwa_mseg.
+        READ TABLE lt_mseg INTO lwa_mseg
+        INDEX 1.
+        IF sy-subrc = 0.
+          gv_cub_med = lwa_mseg-menge.
+        ENDIF.
+      ELSE.
+        SORT lt_mkpf DESCENDING BY cputm.
+        READ TABLE lt_mkpf ASSIGNING <ls_mkpf>
+        INDEX 1.
+        IF sy-subrc = 0.
+          CLEAR lwa_mseg.
+          SELECT SINGLE *
+          FROM nsdm_v_mseg "mseg DSHK962828
+          INTO lwa_mseg
+          WHERE mblnr = <ls_mkpf>-mblnr
+          AND mjahr   = <ls_mkpf>-mjahr. "DSHK962828
+          IF sy-subrc = 0.
+            gv_cub_med = lwa_mseg-menge.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+*..Cubetas pequeñas
+*    SELECT * INTO TABLE lt_mseg
+*    FROM nsdm_v_mseg "mseg DSHK962828
+*    FOR ALL ENTRIES IN lt_mkpf
+*    WHERE mblnr = lt_mkpf-mblnr
+*    AND mjahr   = lt_mkpf-mjahr "DSHK962828
+*    AND   bwart = '63A' "561
+**    AND   sobkz = 'V'
+*    AND   matnr IN lr_peq
+*    AND   kunnr = lv_kunnr.
+
+SELECT  *
+  FROM mkpf AS a
+  INNER JOIN matdoc AS b
+    ON a~mblnr = b~mblnr
+   AND a~mjahr = b~mjahr
+  INTO CORRESPONDING FIELDS OF TABLE @lt_mseg
+ WHERE b~bwart = '63A'
+   AND b~matnr IN @lr_peq
+   AND b~kunnr = @lv_kunnr.
+
+    IF lt_mseg[] IS NOT INITIAL.
+      CLEAR lv_lines.
+      DESCRIBE TABLE lt_mseg LINES lv_lines.
+      IF lv_lines GT 1.
+        CLEAR lwa_mseg.
+        READ TABLE lt_mseg INTO lwa_mseg
+        INDEX 1.
+        IF sy-subrc = 0.
+          gv_cub_peq = lwa_mseg-menge.
+        ENDIF.
+      ELSE.
+        SORT lt_mkpf DESCENDING BY cputm.
+        READ TABLE lt_mkpf ASSIGNING <ls_mkpf>
+        INDEX 1.
+        IF sy-subrc = 0.
+          CLEAR lwa_mseg.
+          SELECT SINGLE *
+          FROM nsdm_v_mseg "mseg DSHK962828
+          INTO lwa_mseg
+          WHERE mblnr = <ls_mkpf>-mblnr
+          AND mjahr   = <ls_mkpf>-mjahr. "DSHK962828
+          IF sy-subrc = 0.
+            gv_cub_peq = lwa_mseg-menge.
+          ENDIF.
+        ENDIF.
+
+      ENDIF.
+    ENDIF.
+*..Estibas
+*    SELECT * INTO TABLE lt_mseg
+*    FROM nsdm_v_mseg "mseg DSHK962828
+*    FOR ALL ENTRIES IN lt_mkpf
+*    WHERE mblnr = lt_mkpf-mblnr
+*    AND mjahr   = lt_mkpf-mjahr "DSHK962828
+*    AND   bwart = '63A' "561
+**    AND   sobkz = 'V'
+*    AND   matnr IN lr_est
+*    AND   kunnr = lv_kunnr.
+
+SELECT  *
+  FROM mkpf AS a
+  INNER JOIN matdoc AS b
+    ON a~mblnr = b~mblnr
+   AND a~mjahr = b~mjahr
+  INTO CORRESPONDING FIELDS OF TABLE @lt_mseg
+ WHERE b~bwart = '63A'
+   AND b~matnr IN @lr_est
+   AND b~kunnr = @lv_kunnr.
+
+    IF lt_mseg[] IS NOT INITIAL.
+      CLEAR lv_lines.
+      DESCRIBE TABLE lt_mseg LINES lv_lines.
+      IF lv_lines GT 1.
+        CLEAR lwa_mseg.
+        READ TABLE lt_mseg INTO lwa_mseg
+        INDEX 1.
+        IF sy-subrc = 0.
+          gv_estibas = lwa_mseg-menge.
+        ENDIF.
+      ELSE.
+        SORT lt_mkpf DESCENDING BY cputm.
+        READ TABLE lt_mkpf ASSIGNING
+        <ls_mkpf>
+        INDEX 1.
+        IF sy-subrc = 0.
+          CLEAR lwa_mseg.
+          SELECT SINGLE *
+          FROM nsdm_v_mseg "mseg DSHK962828
+          INTO lwa_mseg
+          WHERE mblnr = <ls_mkpf>-mblnr
+          AND mjahr   = <ls_mkpf>-mjahr. "DSHK962828
+          IF sy-subrc = 0.
+            gv_estibas = lwa_mseg-menge.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+*  ENDIF.
+
+*..codigo de barras
+  CLEAR lwa_knb1.
+*@0001 - 20190522 - Inicio - Ajuste Autoventas
+****SELECT SINGLE * INTO lwa_vbrk
+****  FROM vbrk
+****  WHERE vbeln = is_bil_invoice-hd_gen-bil_number.
+* Codigo de Barras de Autoventa.
+****IF lwa_vbrk-vtweg = '10' AND lwa_vbrk-kdgrp = '02'.
+****  READ TABLE is_bil_invoice-it_reford INTO DATA(lwa_it_reford)
+****  WITH KEY bil_number = is_bil_invoice-hd_gen-bil_number BINARY
+****SEARCH.
+****  IF sy-subrc = 0.
+****    SELECT SINGLE bstkd_m INTO @DATA(lv_bstkd_m)
+****      FROM vbkd
+****      WHERE vbeln = @lwa_it_reford-order_numb.
+****  ENDIF.
+****ENDIF.
+
+****
+****  CLEAR: gv_barras, gv_barras_text.
+****  lv_xblnr = |{ lv_bstkd_m ALPHA = IN WIDTH = 15 }|.
+****  CONCATENATE '(415)' lv_ean '(8020)6' lv_xblnr INTO gv_barras_text.
+****  CONCATENATE '>;>8415' lv_ean '80206' lv_xblnr INTO gv_barras.
+****  CONDENSE: gv_barras_text,gv_barras NO-GAPS.
+
+****ELSE . " Codigo Barras Credito/Contado/Miscelaneo
+
+****
+****  CLEAR: gv_barras, gv_barras_text.
+****  CONCATENATE '(415)' lv_ean '(8020)7' lv_xblnr+1(15)
+****    INTO gv_barras_text.
+****  CONCATENATE '>;>8415' lv_ean '80207' lv_xblnr+1(15) INTO
+****gv_barras.
+****  CONDENSE: gv_barras_text,gv_barras NO-GAPS.
+  SELECT SINGLE xblnr INTO @DATA(lv_xblnr_bkpf)
+        FROM bkpf
+        WHERE bukrs = @is_bil_invoice-hd_org-comp_code
+        AND gjahr =  @lv_gjahr
+        AND awkey EQ
+        @is_bil_invoice-hd_gen-bil_number.
+
+  IF sy-subrc EQ 0.
+
+    MOVE lv_xblnr_bkpf TO lv_xblnr .
+
+  ENDIF.
+
+  CLEAR: gv_barras, gv_barras_text.
+
+  gv_barras_text = '(415)' && lv_ean  && '(8020)7' &&
+  |{ lv_xblnr ALPHA = IN WIDTH = 15 }|.
+
+  gv_barras = '>;>8415' && lv_ean && '80207' &&
+  |{ lv_xblnr ALPHA = IN WIDTH = 15  }|.
+
+  CONDENSE: gv_barras_text,gv_barras.
+****ENDIF.
+*@0001 - 20190522 - Fin - Ajuste Autoventas
+*..validamos si la sociedad es fundacion
+*   Método para obtener el rango.
+  DATA lr_bukrs TYPE RANGE OF bukrs .
+
+  zcl_bc_parameters=>get_range(
+  EXPORTING
+    im_v_wricef = 'F-SD-040'
+    im_v_id     = 'SOCIEDAD_SIN_CODBARR'
+  CHANGING
+    ch_r_rango  = lr_bukrs
+    ).
+
+  IF is_bil_invoice-hd_org-comp_code IN lr_bukrs
+  AND lr_bukrs IS NOT INITIAL.
+    CLEAR: gv_barras, gv_barras_text.
+  ENDIF.
+
+*..codigo de QR
+  SELECT SINGLE coaut qrcode
+  INTO ( gv_qr_text,gv_qr )
+  FROM ztsd_consola_fe
+  WHERE bukrs = is_bil_invoice-hd_org-comp_code
+  AND vbeln = is_bil_invoice-hd_gen-bil_number .
+
+  IF gv_qr IS NOT INITIAL.
+*  Cambiamos el break line para qrcode
+    REPLACE ALL OCCURRENCES OF '#'
+    IN gv_qr
+    WITH cl_abap_char_utilities=>newline .
+
+    REPLACE ALL OCCURRENCES OF
+    cl_abap_char_utilities=>newline
+    IN gv_qr
+    WITH '\c010\' .
+  ENDIF.
+
+*..email
+  FREE gti_email.
+  SELECT ad~addrnumber ad~smtp_addr
+  FROM kna1 AS k
+  INNER JOIN adrt AS a  ON a~addrnumber =
+  k~adrnr
+  INNER JOIN adr6 AS ad ON ad~addrnumber =
+  k~adrnr
+  AND ad~consnumber
+  = a~consnumber
+  INTO TABLE gti_email
+  WHERE k~kunnr  =
+  is_bil_invoice-hd_gen-sold_to_party
+  AND   a~remark = 'FE'.
+
+  DESCRIBE TABLE gti_detalle LINES gv_items.
+
+  "@0002 - IBM - Inicio - Ajuste Logo fundación - 04/07/2019
+
+  zcl_sd_sf_fact_col=>get_logo(
+  EXPORTING
+    iv_bukrs =
+    is_bil_invoice-hd_org-comp_code
+  IMPORTING
+    ev_logo  = gv_logo ).
+  "@0002 - IBM - Fin    - Ajuste Logo fundación - 04/07/2019
+
+  "@0003 - IBM - inicio - ajuste ordenamiento
+  CONSTANTS: lc_posnr TYPE posnr VALUE '999999'.
+
+  LOOP AT gti_detalle ASSIGNING FIELD-SYMBOL(<lfs_detalle>).
+
+    IF <lfs_detalle>-itm_number EQ lc_posnr .
+
+      gt_detalle_agr = VALUE #( BASE gt_detalle_agr ( <lfs_detalle> ) ).
+
+    ELSE.
+
+      gt_detalle_nagr = VALUE #( BASE gt_detalle_nagr ( <lfs_detalle> ) ).
+
+    ENDIF.
+
+  ENDLOOP.
+
+  SORT gt_detalle_agr BY lgpbe DESCENDING material ASCENDING .
+
+  CLEAR gti_detalle.
+
+  APPEND LINES OF gt_detalle_agr TO  gti_detalle.
+  APPEND LINES OF gt_detalle_nagr TO gti_detalle.
+
+
+
+  DATA: lv_itemindex TYPE I VALUE 1."JTC:HSANABRI 23.07.2020
+  "->BEGIN OF JTC: HSANABRIA: 23.07.2020 08:35:54 número de linea en RG
+  LOOP AT gti_detalle ASSIGNING <ls_detalle> .
+*    READ TABLE lt_vbrp INTO DATA(ls_vbrp)
+*                       WITH KEY posnr = <ls_detalle>-itm_number.
+*    <ls_detalle>-monto_iva = ls_vbrp-mwsbp.
+    <ls_detalle>-itm_index = lv_itemindex.
+    CONDENSE <ls_detalle>-itm_index NO-GAPS.
+    ADD 1 TO lv_itemindex.
+
+  ENDLOOP.
+  "->END OF JTC: HSANABRIA: 23.07.2020 08:36:10 número de linea en RG
+
+  "@0003 - IBM - FIN - Ajuste ordenamiento
+
+  "@0004 - IBM - inicio - Ajuste Impresión Relación Cambios
+  CLEAR gv_rcam.
+
+  zcl_sd_sf_fact_col=>val_relacion_cambios(
+  EXPORTING
+    im_v_fkart = is_bil_invoice-hd_gen-bil_type " Tipo de factura
+  IMPORTING
+    ex_v_rcam  = gv_rcam " Casilla de selección
+    ).
+
+  "@0004 - IBM - Fin.
+
+  " Productos con cambios.
+  PERFORM f_get_valor_cambios USING is_bil_invoice
+   CHANGING gv_valor_cambios.

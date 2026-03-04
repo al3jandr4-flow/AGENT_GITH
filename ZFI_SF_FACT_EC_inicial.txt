@@ -1,0 +1,365 @@
+*-----------------------------------------------------------------------
+* MODIFICATIONS
+*-----------------------------------------------------------------------
+* Author : Timothy Lanz Bermudez (CO050839876)
+* Date   : 05/08/2022
+* Mark   : DSHK944322
+* Spec   : (1) Replaced old VBTYP Constant with new Constant.
+*          (2) Remediated Select Single and Added Order By
+*          (3) Remediated Select from VBRK
+* Notes  : Code Remediation.
+***********************************************************************
+CONSTANTS : lc_wricef TYPE ztbc_parameters-wricef_id VALUE
+                              'FACTURACION',
+            lc_d0 TYPE blart VALUE 'D0',
+*---0001{
+            lc_m  TYPE char1 VALUE 'M'.
+*---0001}
+DATA : lv_party  TYPE party,
+       lv_id     TYPE ztbc_parameters-param_id,
+       lwa_param TYPE ztbc_parameters.
+
+***Get PAVAL/RUC
+lv_party = 'SAPI01'.
+PERFORM get_paval USING is_bil_invoice-hd_org-comp_code
+                        lv_party
+                  CHANGING gv_paval_sapi01.
+lv_party = 'ZCONES'.
+PERFORM get_paval USING is_bil_invoice-hd_org-comp_code
+                        lv_party
+                  CHANGING gv_paval_zcones.
+lv_party = 'ZOBLIG'.
+PERFORM get_paval USING is_bil_invoice-hd_org-comp_code
+                        lv_party
+                  CHANGING gv_paval_zoblig.
+
+***xblnr
+
+*	-> BEGINOF: MPACHECO: 14.03.2019 23:28:18
+*	MP: Donaciones/Salida Mercancia
+SELECT SINGLE bk~blart INTO @DATA(gv_blart)
+  FROM vbrk as vk
+  INNER JOIN bkpf as bk  on bk~belnr = vk~belnr
+                        AND bk~gjahr = vk~gjahr
+                        AND bk~bukrs = vk~bukrs
+*<<<START OF MODIFY  CO050839876 05/08/2022 DSHK944335>>>
+*  WHERE vbeln = @is_bil_invoice-hd_gen-bil_number.
+  WHERE vbeln = @is_bil_invoice-hd_gen-bil_number
+    AND draft = @space. "#EC CI_DB_OPERATION_OK[2768887]
+*<<<END OF MODIFY  CO050839876 05/08/2022 DSHK944335>>>
+*	<- ENDOF: MPACHECO: 14.03.2019 23:28:27
+***Get the authorization number
+SELECT SINGLE belnr, gjahr, bukrs, xblnr
+  FROM vbrk
+  INTO @DATA(lwa_vbrk)
+  WHERE vbeln  = @is_bil_invoice-hd_gen-bil_number.
+IF sy-subrc IS INITIAL.
+
+  DATA(lv_xblnr) = lwa_vbrk-xblnr.
+  IF lv_xblnr IS NOT INITIAL.
+    CONCATENATE lv_xblnr+0(3)
+    lv_xblnr+3(3)
+    lv_xblnr+6(9)
+    INTO gv_xblnr SEPARATED BY '-'.
+  ENDIF.
+
+*<<<START OF MODIFY  CO050839876 05/08/2022 DSHK944335>>>
+*  SELECT  SINGLE coaut
+*  FROM  ztsd_consola_fe
+*  INTO @DATA(lv_coaut)
+*  WHERE bukrs = @lwa_vbrk-bukrs
+*    AND belnr = @lwa_vbrk-belnr
+*    AND gjahr = @lwa_vbrk-gjahr.
+  SELECT coaut UP TO 1 ROWS
+    FROM  ztsd_consola_fe
+    INTO @DATA(lv_coaut)
+    WHERE bukrs = @lwa_vbrk-bukrs
+      AND belnr = @lwa_vbrk-belnr
+      AND gjahr = @lwa_vbrk-gjahr
+    ORDER BY PRIMARY KEY.
+  ENDSELECT.
+*<<<END OF MODIFY  CO050839876 05/08/2022 DSHK944335>>>
+  IF sy-subrc IS INITIAL.
+    gv_coaut = lv_coaut.
+  ENDIF.
+ENDIF.
+
+***Get the address of the company
+SELECT SINGLE adrnr
+  FROM t001
+  INTO @DATA(lv_adrnr)
+  WHERE bukrs = @is_bil_invoice-hd_org-comp_code.
+IF sy-subrc IS INITIAL.
+  PERFORM get_address USING lv_adrnr
+                      CHANGING gwa_bukrs_addr.
+  CONDENSE: gwa_bukrs_addr-name1, gwa_bukrs_addr-name2,
+  gwa_bukrs_addr-street,gwa_bukrs_addr-str_suppl1.
+
+  CONCATENATE gwa_bukrs_addr-name1 gwa_bukrs_addr-name2
+              INTO gv_name SEPARATED BY space.
+
+ENDIF.
+
+" Begin of changes by COI830559
+" Ger addr of the suc.
+SELECT SINGLE aubel ##DB_FEATURE_MODE[TABLE_LEN_MAX1]
+  FROM vbrp
+  INTO @DATA(lv_vbrp)
+ WHERE vbeln = @is_bil_invoice-hd_gen-bil_number
+   AND posnr = '00010'.
+IF sy-subrc = 0.
+  SELECT SINGLE vkbur
+    FROM vbak
+    INTO @DATA(lv_vkbur)
+    WHERE vbeln = @lv_vbrp.
+  IF sy-subrc = 0.
+    SELECT SINGLE adrnr
+      FROM tvbur
+      INTO @DATA(lv_adrnr_suc)
+      WHERE vkbur =  @lv_vkbur.
+    IF sy-subrc = 0.
+      PERFORM get_address USING lv_adrnr_suc
+                 CHANGING gwa_vbkur_addr.
+    ENDIF." tvbur
+  ENDIF. " VBAK
+ENDIF. "VBRP
+
+***Get the ZCVBC Parameters
+lv_id = 'AMBIENTE'.
+PERFORM get_zcvbc USING lc_wricef
+                        is_bil_invoice-hd_org-comp_code
+                        lv_id
+                  CHANGING lwa_param.
+REPLACE ALL OCCURRENCES OF ';' IN lwa_param-valor WITH space.
+CONDENSE lwa_param-valor.
+gv_valor_ambiente = lwa_param-valor.
+
+lv_id = 'EMISION'.
+PERFORM get_zcvbc USING lc_wricef
+                        is_bil_invoice-hd_org-comp_code
+                        lv_id
+                  CHANGING lwa_param.
+REPLACE ALL OCCURRENCES OF ';' IN lwa_param-valor WITH space.
+CONDENSE lwa_param-valor.
+gv_valor_emison = lwa_param-valor.
+CONDENSE : gv_valor_ambiente,gv_valor_emison.
+
+***Get the address of the payer
+CLEAR lv_adrnr.
+SELECT SINGLE adrnr stcd1 INTO (lv_adrnr,gv_stcd1)
+  FROM kna1
+  WHERE kunnr = is_bil_invoice-hd_gen-payer.
+
+IF sy-subrc IS INITIAL.
+  PERFORM get_address USING lv_adrnr
+                      CHANGING gwa_kunrg_addr.
+**Get the email ids
+  PERFORM get_email USING lv_adrnr
+                    CHANGING gv_email1
+                             gv_email2
+                             gv_email3.
+
+  IF gv_email2 IS NOT INITIAL.
+    CONCATENATE ',' gv_email2 INTO gv_email2 SEPARATED BY space.
+  ENDIF.
+  IF gv_email3 IS NOT INITIAL.
+    CONCATENATE ',' gv_email3 INTO gv_email3 SEPARATED BY space.
+  ENDIF.
+ENDIF.
+
+*** Get the direccion
+SELECT vbelv
+  FROM vbfa
+  UP TO 1 ROWS
+  INTO @DATA(lv_vbelv)
+  WHERE vbeln = @is_bil_invoice-hd_gen-bil_number
+*<<<START OF MODIFY  CO050839876 05/08/2022 DSHK944335>>>
+*    AND vbtyp_v = 'J'
+**---0001{
+*    AND vbtyp_n EQ @lc_m.
+**---0001}
+  AND vbtyp_v = @IF_SD_DOC_CATEGORY=>DELIVERY
+  AND vbtyp_n EQ @lc_m
+  ORDER BY vbelv, posnv, vbeln, posnn, vbtyp_n.
+*<<<END OF MODIFY  CO050839876 05/08/2022 DSHK944335>>>
+ENDSELECT.
+IF sy-subrc IS INITIAL.
+  SELECT SINGLE kunnr, lifex
+    FROM likp
+    INTO @DATA(lwa_likp)
+    WHERE vbeln = @lv_vbelv.
+  IF sy-subrc IS INITIAL.
+    gv_kunnr1 = lwa_likp-kunnr.
+    SELECT SINGLE adrnr
+      FROM kna1
+      INTO lv_adrnr
+      WHERE kunnr = lwa_likp-kunnr.
+    IF sy-subrc IS INITIAL.
+***Get the address
+      PERFORM get_address USING lv_adrnr
+                CHANGING gwa_suc_addr.
+    ENDIF.
+    gv_guia = lwa_likp-lifex.
+  ENDIF.
+ENDIF.
+***Get the billing date
+
+DATA(lv_fkdat1) = is_bil_invoice-hd_gen-bil_date.
+***Change the date formats
+CONCATENATE lv_fkdat1+6(2) lv_fkdat1+4(2) lv_fkdat1+0(4)
+INTO gv_fkdat SEPARATED BY '/'.
+CLEAR gwa_item.
+
+**Get the ine item information
+PERFORM get_items USING  is_bil_invoice
+                         is_bil_invoice-hd_org-comp_code
+                         gv_blart
+                  CHANGING gti_item
+                           gv_total_kwert
+                           gv_cubeta1
+                           gv_cubeta2
+                           gv_cubeta3
+                           gv_cubeta4
+                           gv_palet.
+
+**Current bill number
+gv_vbeln = is_bil_invoice-hd_gen-bil_number.
+**Bill task
+gv_mwsbk = is_bil_invoice-hd_gen-bil_tax.
+**TOTAL SUM
+gv_netwr = is_bil_invoice-hd_gen-bil_netwr +
+           is_bil_invoice-hd_gen-bil_tax.
+
+***Sub total1
+DATA(lv_knumv) = is_bil_invoice-hd_gen-kond_numb.
+
+lv_id = 'INDIMP2'.
+
+PERFORM get_zcvbc_range USING lc_wricef
+                          is_bil_invoice-hd_org-comp_code
+                          lv_id
+                  CHANGING gti_mwsk1.
+****get the relevant sum
+PERFORM get_sub_total_2 USING gti_mwsk1
+                            lv_knumv
+                      CHANGING gv_sub_total1 "Subtotal 12%
+                               gv_sub_total3. "IVA12%
+
+"IV Rutina para determinar IVA de forma automatica
+DATA: vl_ivasspl TYPE CHAR35.
+  SELECT kbetr
+    FROM prcd_elements
+    INTO TABLE @DATA(itl_iva)
+    WHERE knumv = @lv_knumv
+      AND kschl = 'MWST'
+      AND mwsk1 IN @gti_mwsk1.
+    IF sy-subrc = 0.
+      IF line_exists( itl_iva[ 1 ] ).
+        DATA(stl_iva) = itl_iva[ 1 ].
+        vl_ivasspl = stl_iva-kbetr.
+        CONDENSE vl_ivasspl NO-GAPS.
+        SPLIT vl_ivasspl AT '.' INTO GV_IVA DATA(VL_DEC).
+        CONDENSE GV_IVA NO-GAPS.
+      ENDIF.
+    ENDIF.
+"IV Rutina para determinar IVA de forma automatica
+
+lv_id = 'INDIMP'.
+PERFORM get_zcvbc_range USING lc_wricef
+                        is_bil_invoice-hd_org-comp_code
+                        lv_id
+                  CHANGING gti_mwsk1.
+***get the relevant sum
+PERFORM get_sub_total USING gti_mwsk1
+                            lv_knumv
+                      CHANGING gv_sub_total2. "Subtotal 0%
+
+*	-> BEGINOF: MPACHECO: 06.03.2019 15:55:36
+*	MP: Subtotal
+" Donaciones / Salidas Mercancia
+IF gv_blart = lc_d0 .
+  gv_netwr = gv_netwr + gv_sub_total1 + gv_sub_total2 .
+ENDIF.
+*	<- ENDOF: MPACHECO: 06.03.2019 15:55:45
+
+PERFORM get_tprfo USING is_bil_invoice-hd_gen-bil_number
+                  CHANGING gv_tprfo
+                           gv_route.
+
+
+SELECT SINGLE bzirk_auft ##DB_FEATURE_MODE[TABLE_LEN_MAX1]
+         FROM vbrp
+         INTO gv_bzirk
+         WHERE vbeln = is_bil_invoice-hd_gen-bil_number
+           AND posnr = '00010'.
+DATA(lti_ref_pur) = is_bil_invoice-it_refpurord[].
+READ TABLE lti_ref_pur INTO DATA(lwa_ref_pur) INDEX 1.
+IF sy-subrc IS INITIAL.
+  gv_bstkd = lwa_ref_pur-purch_no_c.
+ENDIF.
+
+DATA(lv_fkdat2) = is_bil_invoice-hd_gen-bil_date.
+
+PERFORM get_ztag1 USING is_bil_invoice-hd_gen-terms_paym
+                  CHANGING lv_fkdat2
+                           gv_ztag1.
+**Delivery date in footer
+CONCATENATE lv_fkdat2+6(2) lv_fkdat2+4(2) lv_fkdat2+0(4)
+INTO gv_fkdat_last SEPARATED BY '/'.
+DATA: lv_fkdat_temp TYPE char10.
+DATA: lv_fkdat_temp2 TYPE char12.
+CALL FUNCTION 'CONVERSION_EXIT_IDATE_OUTPUT'
+  EXPORTING
+    input  = lv_fkdat2
+  IMPORTING
+    output = lv_fkdat_temp.
+CONCATENATE lv_fkdat_temp+0(3) lv_fkdat_temp+3(2) lv_fkdat_temp+5(4)
+INTO lv_fkdat_temp2 SEPARATED BY '-'.
+
+IF is_bil_invoice-hd_gen-terms_paym = 'Z000'.
+  CONCATENATE 'CONTADO' lv_fkdat_temp2 INTO gv_fkdat2 SEPARATED BY
+space.
+ELSE.
+  CONCATENATE 'CREDITO' lv_fkdat_temp2 INTO gv_fkdat2 SEPARATED BY
+space.
+ENDIF.
+***Get the open documents if available
+SELECT zuonr,budat,dmbtr,xref2
+  FROM bsid
+  INTO TABLE @DATA(lti_bsid)
+  WHERE bukrs = @is_bil_invoice-hd_org-comp_code
+    AND kunnr = @is_bil_invoice-hd_gen-payer
+    AND umskz = 'T'.
+IF sy-subrc IS INITIAL.
+  LOOP AT lti_bsid ASSIGNING FIELD-SYMBOL(<lfs_bsid>).
+    MOVE-CORRESPONDING <lfs_bsid> TO gwa_bsid.
+***Change the date formats
+    CONCATENATE <lfs_bsid>-budat+6(2) <lfs_bsid>-budat+4(2)
+     <lfs_bsid>-budat+0(4) INTO gwa_bsid-budat
+     SEPARATED BY '/'.
+    APPEND gwa_bsid TO gti_bsid.
+  ENDLOOP.
+  CLEAR gwa_bsid.
+*** To call the second page
+  gv_second_page = abap_true.
+ENDIF.
+
+PERFORM get_zlsch USING gv_vbeln
+        is_bil_invoice-hd_org-comp_code
+                  CHANGING gv_text.
+
+"-> BEGINOF: MPACHECO: 06.12.2018 16:43:51
+"MP: get show cubetas?
+SELECT SINGLE kdgrp INTO @DATA(lv_kdgrp)
+  FROM vbrk
+  WHERE vbeln = @is_bil_invoice-hd_gen-bil_number .
+IF is_bil_invoice-hd_org-distrb_channel = '20'
+    OR ( is_bil_invoice-hd_org-distrb_channel = '10'
+        AND lv_kdgrp = '03' ) .
+
+  gv_show_cubetas = abap_true.
+ENDIF.
+"<- ENDOF: MPACHECO: 06.12.2018 16:44:01
+
+CONCATENATE gwa_bukrs_addr-name1 gwa_bukrs_addr-name2
+  INTO gv_razon_soc SEPARATED BY space.
