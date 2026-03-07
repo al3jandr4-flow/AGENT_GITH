@@ -51,6 +51,9 @@ DATA : lv_pedidoau TYPE vbak-auart.
 
   FIELD-SYMBOLS <ls_mkpf> LIKE LINE OF lt_mkpf.
   FIELD-SYMBOLS <lf_detalle> LIKE LINE OF gti_detalle.
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+  FIELD-SYMBOLS: <lfs_mseg> TYPE mseg.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
   "Variable para impresion formato Anticipo en blanco-ndiaz 290819
   DATA: lv_factanct(1) TYPE C.
 *Fin.
@@ -194,7 +197,7 @@ DATA : lv_pedidoau TYPE vbak-auart.
   IF sy-subrc = 0.
     SELECT SINGLE auart
     FROM vbak
-    INTO lv_pedidoau
+    INTO lv_pedidoau                    "#EC CI_DB_OPERATION_OK
     WHERE vbeln = <lfs_refor>-order_numb.
   ENDIF.
   "<- ENDOF: MPACHECO: 08.12.2018 15:26:58
@@ -318,16 +321,18 @@ DATA : lv_pedidoau TYPE vbak-auart.
         lv_icui TYPE vfprc_element_value,
         lv_iva TYPE vfprc_element_value.
 *FIN - Modif. - ALP2305-01 Impuesto Saludable - FLX_ABAP - 28.10.2023
-  LOOP AT is_bil_invoice-it_gen INTO gwa_it_gen.
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+  LOOP AT is_bil_invoice-it_gen ASSIGNING FIELD-SYMBOL(<lfs_it_gen>).
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
 *..valor de % de IVA
     CLEAR lwa_elements.
 
 
-    IF line_exists( lt_mard[ matnr = gwa_it_gen-material
-    posnr = gwa_it_gen-itm_number ] ).
+    IF line_exists( lt_mard[ matnr = <lfs_it_gen>-material
+    posnr = <lfs_it_gen>-itm_number ] ).
 
-      DATA(ls_mard) = lt_mard[ matnr = gwa_it_gen-material
-            posnr = gwa_it_gen-itm_number ] .
+      DATA(ls_mard) = lt_mard[ matnr = <lfs_it_gen>-material
+            posnr = <lfs_it_gen>-itm_number ] .
       DATA(lv_lgpbe) = ls_mard-lgpbe.
 
     ENDIF.
@@ -337,7 +342,7 @@ DATA : lv_pedidoau TYPE vbak-auart.
 
       PERFORM get_data_1 TABLES gti_elements
       USING is_bil_invoice
-            gwa_it_gen
+            <lfs_it_gen>
             gr_cl_pos_no_agrupa
             lv_lgpbe "@0003-IBM - Ajuste ordenamiento
       CHANGING gti_detalle
@@ -354,12 +359,14 @@ DATA : lv_pedidoau TYPE vbak-auart.
       " ZCRS = CO Servicios Ruedas
   ELSEIF is_bil_invoice-hd_gen-bil_type = 'ZCRS'.
       CLEAR lwa_elements.
-      READ TABLE gti_elements INTO lwa_elements
-      WITH KEY kposn = gwa_it_gen-itm_number
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+      READ TABLE gti_elements ASSIGNING FIELD-SYMBOL(<lfs_elements>)
+      WITH KEY kposn = <lfs_it_gen>-itm_number
       kschl = 'ZCPR'.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
       IF sy-subrc = 0.
         PERFORM get_data_2 TABLES gti_elements
-        USING is_bil_invoice gwa_it_gen
+        USING is_bil_invoice <lfs_it_gen>
         CHANGING gti_detalle
 *        INI - Modif. - Incidente INC000000005284  - FLX_ABAP - 28.12.2023
           lv_iva.
@@ -461,9 +468,11 @@ ELSEIF is_bil_invoice-hd_gen-bil_type = 'ZCRS'.
 *DESCRIBE TABLE gti_detalle LINES gv_items.
 
 *..recaudo
-  READ TABLE is_bil_invoice-it_ref INTO lwa_ref
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+  READ TABLE is_bil_invoice-it_ref ASSIGNING FIELD-SYMBOL(<lfs_ref>)
   WITH KEY bil_number   = is_bil_invoice-hd_org-bil_number
   ref_doc_type = 'J'.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
   IF sy-subrc = 0.
     CLEAR:lv_text1, lv_tdlnr.
     SELECT SINGLE a~tprfo b~tdlnr b~text1 b~text2
@@ -471,13 +480,13 @@ ELSEIF is_bil_invoice-hd_gen-bil_type = 'ZCRS'.
     INNER JOIN vttk AS b ON b~tknum = a~tknum
     INTO (gwa_adicional-tprfo, lv_tdlnr, lv_text1,
     gwa_adicional-text2)
-    WHERE a~vbeln = lwa_ref-ref_doc.
+    WHERE a~vbeln = <lfs_ref>-ref_doc. "#EC CI_DB_OPERATION_OK
 
     IF sy-subrc = 0.
       IF lv_tdlnr IS NOT INITIAL.
         CLEAR: lv_name1, lv_name2.
         SELECT SINGLE name1 name2 stcd1
-        INTO (lv_name1, lv_name2, lv_stcd1)
+        INTO (lv_name1, lv_name2, lv_stcd1) "#EC CI_DB_OPERATION_OK
         FROM lfa1
         WHERE lifnr = lv_tdlnr.
         IF sy-subrc = 0.
@@ -505,15 +514,17 @@ ELSEIF is_bil_invoice-hd_gen-bil_type = 'ZCRS'.
 
 *..valor KUNNR cliente para cubetas
     CLEAR lv_kunnr.
-    SELECT SINGLE kunnr INTO lv_kunnr
-    FROM likp
-    WHERE vbeln = lwa_ref-ref_doc.
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+    SELECT SINGLE kunnr FROM likp INTO @lv_kunnr
+    WHERE vbeln = @<lfs_ref>-ref_doc.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
 
 *..Orden de entrega
     CLEAR gv_tprfo.
-    SELECT SINGLE tprfo INTO gv_tprfo
-    FROM vttp
-    WHERE vbeln = lwa_ref-ref_doc.
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+    SELECT SINGLE tprfo FROM vttp INTO @gv_tprfo
+    WHERE vbeln = @<lfs_ref>-ref_doc.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
   ENDIF.
 
 *..valores para las cubetas
@@ -548,10 +559,12 @@ SELECT  *
       DESCRIBE TABLE lt_mseg LINES lv_lines.
       IF lv_lines GT 1.
         CLEAR lwa_mseg.
-        READ TABLE lt_mseg INTO lwa_mseg
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+        READ TABLE lt_mseg ASSIGNING <lfs_mseg>
         INDEX 1.
         IF sy-subrc = 0.
-          gv_cub_grad = lwa_mseg-menge .
+          gv_cub_grad = <lfs_mseg>-menge.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
         ENDIF.
       ELSE.
         SORT lt_mkpf DESCENDING BY cputm.
@@ -559,11 +572,13 @@ SELECT  *
         INDEX 1.
         IF sy-subrc = 0.
           CLEAR lwa_mseg.
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
           SELECT SINGLE *
           FROM nsdm_v_mseg "mseg DSHK962828
-          INTO lwa_mseg
-          WHERE mblnr = <ls_mkpf>-mblnr
-          AND mjahr   = <ls_mkpf>-mjahr. "DSHK962828
+          INTO @lwa_mseg
+          WHERE mblnr = @<ls_mkpf>-mblnr
+          AND mjahr   = @<ls_mkpf>-mjahr. "DSHK962828
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
           IF sy-subrc = 0.
             gv_cub_grad = lwa_mseg-menge.
           ENDIF.
@@ -597,10 +612,12 @@ SELECT  *
       DESCRIBE TABLE lt_mseg LINES lv_lines.
       IF lv_lines GT 1.
         CLEAR lwa_mseg.
-        READ TABLE lt_mseg INTO lwa_mseg
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+        READ TABLE lt_mseg ASSIGNING <lfs_mseg>
         INDEX 1.
         IF sy-subrc = 0.
-          gv_cub_med = lwa_mseg-menge.
+          gv_cub_med = <lfs_mseg>-menge.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
         ENDIF.
       ELSE.
         SORT lt_mkpf DESCENDING BY cputm.
@@ -608,11 +625,13 @@ SELECT  *
         INDEX 1.
         IF sy-subrc = 0.
           CLEAR lwa_mseg.
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
           SELECT SINGLE *
           FROM nsdm_v_mseg "mseg DSHK962828
-          INTO lwa_mseg
-          WHERE mblnr = <ls_mkpf>-mblnr
-          AND mjahr   = <ls_mkpf>-mjahr. "DSHK962828
+          INTO @lwa_mseg
+          WHERE mblnr = @<ls_mkpf>-mblnr
+          AND mjahr   = @<ls_mkpf>-mjahr. "DSHK962828
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
           IF sy-subrc = 0.
             gv_cub_med = lwa_mseg-menge.
           ENDIF.
@@ -645,10 +664,12 @@ SELECT  *
       DESCRIBE TABLE lt_mseg LINES lv_lines.
       IF lv_lines GT 1.
         CLEAR lwa_mseg.
-        READ TABLE lt_mseg INTO lwa_mseg
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+        READ TABLE lt_mseg ASSIGNING <lfs_mseg>
         INDEX 1.
         IF sy-subrc = 0.
-          gv_cub_peq = lwa_mseg-menge.
+          gv_cub_peq = <lfs_mseg>-menge.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
         ENDIF.
       ELSE.
         SORT lt_mkpf DESCENDING BY cputm.
@@ -656,11 +677,13 @@ SELECT  *
         INDEX 1.
         IF sy-subrc = 0.
           CLEAR lwa_mseg.
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
           SELECT SINGLE *
           FROM nsdm_v_mseg "mseg DSHK962828
-          INTO lwa_mseg
-          WHERE mblnr = <ls_mkpf>-mblnr
-          AND mjahr   = <ls_mkpf>-mjahr. "DSHK962828
+          INTO @lwa_mseg
+          WHERE mblnr = @<ls_mkpf>-mblnr
+          AND mjahr   = @<ls_mkpf>-mjahr. "DSHK962828
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
           IF sy-subrc = 0.
             gv_cub_peq = lwa_mseg-menge.
           ENDIF.
@@ -694,10 +717,12 @@ SELECT  *
       DESCRIBE TABLE lt_mseg LINES lv_lines.
       IF lv_lines GT 1.
         CLEAR lwa_mseg.
-        READ TABLE lt_mseg INTO lwa_mseg
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+        READ TABLE lt_mseg ASSIGNING <lfs_mseg>
         INDEX 1.
         IF sy-subrc = 0.
-          gv_estibas = lwa_mseg-menge.
+          gv_estibas = <lfs_mseg>-menge.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
         ENDIF.
       ELSE.
         SORT lt_mkpf DESCENDING BY cputm.
@@ -706,11 +731,13 @@ SELECT  *
         INDEX 1.
         IF sy-subrc = 0.
           CLEAR lwa_mseg.
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
           SELECT SINGLE *
           FROM nsdm_v_mseg "mseg DSHK962828
-          INTO lwa_mseg
-          WHERE mblnr = <ls_mkpf>-mblnr
-          AND mjahr   = <ls_mkpf>-mjahr. "DSHK962828
+          INTO @lwa_mseg
+          WHERE mblnr = @<ls_mkpf>-mblnr
+          AND mjahr   = @<ls_mkpf>-mjahr. "DSHK962828
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
           IF sy-subrc = 0.
             gv_estibas = lwa_mseg-menge.
           ENDIF.
@@ -796,7 +823,7 @@ SELECT  *
 
 *..codigo de QR
   SELECT SINGLE coaut qrcode
-  INTO ( gv_qr_text,gv_qr )
+  INTO ( gv_qr_text,gv_qr )             "#EC CI_DB_OPERATION_OK
   FROM ztsd_consola_fe
   WHERE bukrs = is_bil_invoice-hd_org-comp_code
   AND vbeln = is_bil_invoice-hd_gen-bil_number .

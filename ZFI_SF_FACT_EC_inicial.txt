@@ -146,9 +146,11 @@ CONDENSE : gv_valor_ambiente,gv_valor_emison.
 
 ***Get the address of the payer
 CLEAR lv_adrnr.
-SELECT SINGLE adrnr stcd1 INTO (lv_adrnr,gv_stcd1)
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+SELECT SINGLE adrnr stcd1 INTO (lv_adrnr,gv_stcd1) "#EC CI_DB_OPERATION_OK
   FROM kna1
   WHERE kunnr = is_bil_invoice-hd_gen-payer.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
 
 IF sy-subrc IS INITIAL.
   PERFORM get_address USING lv_adrnr
@@ -293,9 +295,11 @@ SELECT SINGLE bzirk_auft ##DB_FEATURE_MODE[TABLE_LEN_MAX1]
          WHERE vbeln = is_bil_invoice-hd_gen-bil_number
            AND posnr = '00010'.
 DATA(lti_ref_pur) = is_bil_invoice-it_refpurord[].
-READ TABLE lti_ref_pur INTO DATA(lwa_ref_pur) INDEX 1.
+*<<<START OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
+READ TABLE lti_ref_pur ASSIGNING FIELD-SYMBOL(<lfs_ref_pur>) INDEX 1.
 IF sy-subrc IS INITIAL.
-  gv_bstkd = lwa_ref_pur-purch_no_c.
+  gv_bstkd = <lfs_ref_pur>-purch_no_c.
+*<<<END OF MODIFY  FLX_ABAP 12/02/2026 ATC_REMEDIATION>>>
 ENDIF.
 
 DATA(lv_fkdat2) = is_bil_invoice-hd_gen-bil_date.
